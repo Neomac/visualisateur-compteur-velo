@@ -1,5 +1,4 @@
-import React, { useEffect, useState } from 'react';
-import axios from 'axios';
+import React from 'react';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 
 const MapWithMarkers = ({ markersData }) => {
@@ -17,7 +16,9 @@ const MapWithMarkers = ({ markersData }) => {
             {marker.ID}
             <br />
             {/* Afficher le nombre total de passages */}
-            Total de passages : {marker.totalNbPassage}
+            Total de passages : {marker.totalPassages}
+            <br />
+            Status : {marker.Statut}
           </Popup>
         </Marker>
       ))}
