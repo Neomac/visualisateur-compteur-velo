@@ -10,6 +10,8 @@ import 'leaflet/dist/images/marker-shadow.png';
 
 const App = () => {
   const [stopsData, setStopsData] = useState([]);
+  const [isLoading, setIsLoading] = useState(true); // Ajout de l'état isLoading
+
 
   //Setup map Leaflet
   React.useEffect(() => {
@@ -24,8 +26,6 @@ const App = () => {
     });
   }, []);
 
-  console.log("Test");
-
   useEffect(() => {
     const stopsApiUrl = 'https://donnees.montreal.ca/api/3/action/datastore_search';
     const stopsResource_id = 'c7d0546a-a218-479e-bc9f-ce8f13ca972c'; // Remplacez par le bon ID de la ressource
@@ -38,41 +38,64 @@ const App = () => {
     .then(response => {
       const records = response.data.result.records;
       setStopsData(records);
-
-      // Récupérer les nombres de passages pour chaque arrêt
-      const passagesApiUrl = 'https://donnees.montreal.ca/api/3/action/datastore_search_sql';
-      const passagesSql = `SELECT nb_passages, id_compteur, date FROM "65a37da8-a7cf-4812-a3b5-5edff31c45f6" WHERE date >= '2023-01-01' AND date <= '2023-12-31'`;
       
-      axios.get(passagesApiUrl, {
-        params: {
-          sql: passagesSql,
-        },
-      })
-      .then(passagesResponse => {
-        const passagesRecords = passagesResponse.data.result.records;
+      // Récupérer tous les enregistrements de passages en paginant
+      const fetchAllPassages = async () => {
+        let allPassages = [];
+        let offset = 0;
+        const batchSize = 31000;
 
-        // Calculer le nombre total de passages en 2023 pour chaque arrêt
-        const stopsWithPassages = records.map(stop => {
-          const idCompteur = stop.ID; // L'ID du compteur correspond à l'ID de l'arrêt
-          const filteredPassages = passagesRecords
-            .filter(record => record.id_compteur === idCompteur && record.date >= '2023-01-01' && record.date <= '2023-12-31');
+        while (true) {
+          const passagesApiUrl = 'https://donnees.montreal.ca/api/3/action/datastore_search_sql';
+          const passagesSql = `SELECT nb_passages, id_compteur, date FROM "65a37da8-a7cf-4812-a3b5-5edff31c45f6" WHERE date >= '2023-01-01' AND date <= '2023-07-31' OFFSET ${offset} LIMIT ${batchSize}`;
           
-          const totalPassages = filteredPassages.reduce((total, record) => {
-            const nbPassages = parseInt(record.nb_passages, 10);
-            return isNaN(nbPassages) ? total : total + nbPassages;
-          }, 0);
+          const passagesResponse = await axios.get(passagesApiUrl, {
+            params: {
+              sql: passagesSql,
+            },
+          });
           
-          return { ...stop, totalPassages };
+          const passagesRecords = passagesResponse.data.result.records;
+
+          if (passagesRecords.length === 0) {
+            break;
+          }
+
+          allPassages = allPassages.concat(passagesRecords);
+          offset += batchSize;
+        }
+
+        return allPassages;
+      };
+
+      fetchAllPassages()
+        .then(allPassages => {
+          // Calculer le nombre total de passages en 2023 pour chaque arrêt
+          const stopsWithPassages = records.map(stop => {
+            const idCompteur = stop.ID;
+            const filteredPassages = allPassages
+              .filter(record => record.id_compteur === idCompteur);
+            
+            const totalPassages = filteredPassages.reduce((total, record) => {
+              const nbPassages = parseInt(record.nb_passages, 10);
+              return isNaN(nbPassages) ? total : total + nbPassages;
+            }, 0);
+
+
+            setIsLoading(false); // Marquer le chargement comme terminé
+            return { ...stop, totalPassages };
+          });
+
+          setStopsData(stopsWithPassages);
+        })
+        .catch(error => {
+          console.error('Erreur lors de la récupération des données des passages :', error);
+          setIsLoading(false); // Marquer le chargement comme terminé en cas d'erreur
         });
-
-        setStopsData(stopsWithPassages);
-      })
-      .catch(error => {
-        console.error('Erreur lors de la récupération des données des passages :', error);
-      });
     })
     .catch(error => {
       console.error('Erreur lors de la récupération des données des arrêts :', error);
+      setIsLoading(false); // Marquer le chargement comme terminé en cas d'erreur
     });
   }, []);
 
@@ -81,7 +104,11 @@ const App = () => {
   return (
     <div>
       <h1>Carte des arrêts avec les passages</h1>
-      <MapWithMarkers markersData={stopsData} />
+      {isLoading ? ( // Afficher l'écran de chargement si isLoading est vrai
+        <div>Loading...</div>
+      ) : (
+        <MapWithMarkers markersData={stopsData} />
+      )}
     </div>
   );
 };
